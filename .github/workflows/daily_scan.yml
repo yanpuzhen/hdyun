@@ -40,4 +40,4 @@ jobs:
       uses: stefanzweifel/git-auto-commit-action@v5
       with:
         commit_message: "Auto-update scan results [skip ci]"
-        file_pattern: hudiyun_results.json
+        file_pattern: "hudiyun_results.json hudiyun.db"

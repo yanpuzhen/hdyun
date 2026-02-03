@@ -4,6 +4,7 @@ import argparse
 import os
 import time
 import asyncio
+import sqlite3
 from playwright.async_api import async_playwright
 import requests
 
@@ -31,43 +32,92 @@ class HudiyunScanner:
         self.get_price_flag = get_price
         self.time_limit = time_limit
         self.concurrency = concurrency
-        self.success_ids = []
-        self.failed_ids = []
-        self.results_file = "hudiyun_results.json"
-        self.script_dir = os.path.dirname(os.path.abspath(__file__))
-        self.results_path = os.path.join(self.script_dir, self.results_file)
-        self.start_time = time.time()
         
-        self.load_results()
-        self.existing_map = {item['pid']: item for item in self.success_ids}
+        self.script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.results_file = "hudiyun_results.json"
+        self.results_path = os.path.join(self.script_dir, self.results_file)
+        self.db_path = os.path.join(self.script_dir, "hudiyun.db")
+        
+        self.start_time = time.time()
         self.consecutive_failures = 0
         self.MAX_CONSECUTIVE_FAILURES = 50
         self.stop_signal = False
+        
+        # Initialize DB
+        self.init_db()
 
-    def load_results(self):
-        if os.path.exists(self.results_path):
+    def init_db(self):
+        self.conn = sqlite3.connect(self.db_path)
+        self.conn.row_factory = sqlite3.Row
+        self.cursor = self.conn.cursor()
+        
+        # Create table
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS products (
+                pid INTEGER PRIMARY KEY,
+                title TEXT,
+                price TEXT,
+                billing_cycle TEXT,
+                url TEXT,
+                updated_at TEXT
+            )
+        ''')
+        self.conn.commit()
+        
+        # Migrate JSON if DB is empty but JSON exists
+        self.cursor.execute("SELECT count(*) FROM products")
+        if self.cursor.fetchone()[0] == 0 and os.path.exists(self.results_path):
+            print("Migrating existing JSON data to SQLite...")
             try:
                 with open(self.results_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    self.success_ids = data.get('success', [])
-                    self.failed_ids = data.get('failed', [])
+                    success_list = data.get('success', [])
+                    for item in success_list:
+                        self.upsert_product(item)
+                print(f"Migrated {len(success_list)} items.")
             except Exception as e:
-                print(f"Error loading results: {e}")
+                print(f"Migration failed: {e}")
 
-    def save_results(self):
-        # Sort by PID before saving
-        self.success_ids.sort(key=lambda x: x['pid'])
+    def upsert_product(self, item):
+        self.cursor.execute('''
+            INSERT OR REPLACE INTO products (pid, title, price, billing_cycle, url, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            item['pid'], 
+            item['title'], 
+            item['price'], 
+            item['billing_cycle'], 
+            item['url'],
+            time.strftime("%Y-%m-%d %H:%M:%S")
+        ))
+        self.conn.commit()
+
+    def get_product(self, pid):
+        self.cursor.execute("SELECT * FROM products WHERE pid = ?", (pid,))
+        row = self.cursor.fetchone()
+        if row:
+            return dict(row)
+        return None
+
+    def export_json(self):
+        print("Exporting SQLite to JSON for frontend...")
+        self.cursor.execute("SELECT * FROM products ORDER BY pid ASC")
+        rows = self.cursor.fetchall()
+        success_ids = [dict(row) for row in rows]
+        
         data = {
-            'success': self.success_ids,
-            'failed': self.failed_ids,
-            'last_pid': self.success_ids[-1]['pid'] if self.success_ids else self.start_pid,
+            'success': success_ids,
+            'failed': [], # We don't strictly track failed IDs in DB to save space, keeping empty for compat
+            'last_pid': success_ids[-1]['pid'] if success_ids else self.start_pid,
             'updated_at': time.strftime("%Y-%m-%d %H:%M:%S")
         }
+        
         try:
             with open(self.results_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+            print(f"Export complete. {len(success_ids)} items.")
         except Exception as e:
-            print(f"Error saving results: {e}")
+            print(f"Error exporting JSON: {e}")
 
     async def check_pid(self, context, pid, semaphore):
         async with semaphore:
@@ -81,7 +131,6 @@ class HudiyunScanner:
                 return
 
             url = f"https://www.szhdy.com/cart?action=configureproduct&pid={pid}"
-            # print(f"Checking PID {pid}...", end='', flush=True) # Async printing is messy, skipping detailed start log
             
             page = await context.new_page()
             try:
@@ -99,11 +148,16 @@ class HudiyunScanner:
                 title = await page.title()
                 body_text = await page.inner_text('body')
                 
+                # Check 404/NotFound
                 if '404' in title or '抱歉找不到页面' in body_text:
                     print(f"PID {pid}: ❌ Page Not Found")
                     self.consecutive_failures += 1
-                    if pid in self.existing_map:
-                         print(f"PID {pid}: (Disappeared)")
+                    
+                    # Optional: Check if it disappeared
+                    # existing = self.get_product(pid)
+                    # if existing:
+                    #      print(f"PID {pid}: (Disappeared)")
+                    #      # self.delete_product(pid) ?
                 else:
                     product_name_el = await page.query_selector('.allocation-header-title h1')
                     product_name = await product_name_el.inner_text() if product_name_el else ""
@@ -131,8 +185,7 @@ class HudiyunScanner:
                         print(f"PID {pid}: ❌ Invalid Product Page")
                         self.consecutive_failures += 1
                     else:
-                        # Success - Reset consecutive failures
-                        # Note: In async, this counter logic is loose but sufficient for rough stopping
+                        # Success
                         self.consecutive_failures = 0 
 
                         billing_cycle = "default"
@@ -184,23 +237,21 @@ class HudiyunScanner:
                         cycle_str = " (年付)" if billing_cycle == "annually" else ""
                         print(f"PID {pid}: ✅ {product_name} {current_price_fmt}{cycle_str}")
                         
-                        # Notification Logic
+                        # CHANGE DETECTION & NOTIFICATION
+                        existing_item = self.get_product(pid)
                         notification_msg = ""
-                        if pid not in self.existing_map:
+                        
+                        if not existing_item:
                             notification_msg = f"## ✨ 发现新商品 (PID: {pid})\n- **标题**: {product_name}\n- **价格**: {current_price_fmt}\n- **周期**: {billing_cycle}\n- [点击购买]({url})"
                         else:
-                            old_item = self.existing_map[pid]
-                            old_price = old_item.get('price', '')
+                            old_price = existing_item.get('price', '')
                             if current_price_fmt and current_price_fmt != old_price:
                                 notification_msg = f"## 💰 价格变动 (PID: {pid})\n- **标题**: {product_name}\n- **旧价格**: {old_price}\n- **新价格**: {current_price_fmt}\n- [点击购买]({url})"
 
                         if notification_msg:
                             self.send_dingtalk(notification_msg)
 
-                        # Update in-memory list safely (append only, sort later or lock if needed)
-                        # Remove old
-                        self.success_ids = [item for item in self.success_ids if item['pid'] != pid]
-                        
+                        # UPSERT DB
                         new_item = {
                             'pid': pid,
                             'title': product_name,
@@ -208,14 +259,7 @@ class HudiyunScanner:
                             'billing_cycle': billing_cycle,
                             'url': url
                         }
-                        self.success_ids.append(new_item)
-                        self.existing_map[pid] = new_item
-                        
-                        # Save periodically or here? 
-                        # Saving here might be too frequent for async concurrency.
-                        # Let's save every success for safety? Or maybe batch?
-                        # Since user wants feedback, saving is safer.
-                        self.save_results()
+                        self.upsert_product(new_item)
 
             except Exception as e:
                 print(f"PID {pid}: ⚠️ Error: {e}")
@@ -223,7 +267,7 @@ class HudiyunScanner:
                 await page.close()
 
     async def run_async(self):
-        print(f"Starting Async Scan from PID {self.start_pid}...", end="")
+        print(f"Starting Async Scan (SQLite Mode) from PID {self.start_pid}...", end="")
         if self.end_pid:
              print(f" to {self.end_pid}")
         else:
@@ -249,37 +293,31 @@ class HudiyunScanner:
                 if self.end_pid and pid > self.end_pid:
                     break
                 
-                # Check consecutive failures in main loop to break
                 if self.consecutive_failures >= self.MAX_CONSECUTIVE_FAILURES:
                     print(f"\n🛑 Stopping: {self.MAX_CONSECUTIVE_FAILURES} consecutive failures.")
                     break
                 
-                # Clean up completed tasks
                 tasks = [t for t in tasks if not t.done()]
                 
-                # Add new task
                 task = asyncio.create_task(self.check_pid(context, pid, semaphore))
                 tasks.append(task)
                 
-                # Flow control: Don't spawn infinitely if semaphore is full? 
-                # Semaphore handles execution, but tasks list grows.
-                # Just limit pending tasks to avoid OOM if very fast?
                 if len(tasks) > self.concurrency * 2:
                     await asyncio.sleep(0.1)
 
                 pid += 1
             
-            # Wait for remaining tasks
             if tasks:
                 await asyncio.gather(*tasks)
                 
             await browser.close()
-            
-        print(f"\nScan complete. Found {len(self.success_ids)} valid products.")
-
+        
+        # Export at end
+        self.export_json()
+        self.conn.close()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Hudiyun Product Scanner (Async Playwright)")
+    parser = argparse.ArgumentParser(description="Hudiyun Product Scanner (Async Playwright + SQLite)")
     parser.add_argument("--start", type=int, default=1, help="Start PID (default: 1)")
     parser.add_argument("--end", type=int, default=None, help="End PID (optional, default: continuous)")
     parser.add_argument("--time-limit", type=int, default=None, help="Stop after N seconds")
@@ -294,4 +332,11 @@ if __name__ == "__main__":
         concurrency=args.concurrency
     )
     
-    asyncio.run(scanner.run_async())
+    try:
+        asyncio.run(scanner.run_async())
+    except KeyboardInterrupt:
+        print("\nManually interrupted. Exporting data...")
+        scanner.export_json()
+    except Exception as e:
+        print(f"Fatal Error: {e}")
+        scanner.export_json()
