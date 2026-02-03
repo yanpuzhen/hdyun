@@ -1,0 +1,39 @@
+name: Hudiyun Daily Scan
+
+on:
+  schedule:
+    # Runs at 00:00 and 12:00 UTC every day
+    - cron: '0 0,12 * * *'
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install playwright
+        playwright install chromium
+
+    - name: Run Scan
+      run: |
+        # Adjust scan range as needed
+        python 狐蒂云商品识别.py --start 1850 --end 1900
+
+    - name: Commit and Push results
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_message: "Auto-update scan results [skip ci]"
+        file_pattern: hudiyun_results.json

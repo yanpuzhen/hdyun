@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>狐蒂云识别结果</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f5f5f7;
+            color: #1d1d1f;
+            line-height: 1.5;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        input[type="text"] {
+            padding: 10px;
+            border: 1px solid #d2d2d7;
+            border-radius: 8px;
+            width: 300px;
+            font-size: 16px;
+        }
+
+        .stats {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #86868b;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 15px;
+            border-bottom: 1px solid #e5e5ea;
+        }
+
+        th {
+            background-color: #f5f5f7;
+            font-weight: 600;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover {
+            background-color: #fbfbfd;
+        }
+
+        .price {
+            font-weight: bold;
+            color: #ff3b30;
+        }
+
+        .link a {
+            color: #007aff;
+            text-decoration: none;
+        }
+
+        .link a:hover {
+            text-decoration: underline;
+        }
+
+        .high-price {
+            color: #ff9f0a;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>狐蒂云识别结果</h1>
+
+    <div class="controls">
+        <input type="text" id="searchInput" placeholder="搜索 PID 或标题..." onkeyup="filterData()">
+        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="hideHighPrice" checked onchange="filterData()"> 隐藏高价/无效商品 (¥9999+ 或 ¥0)
+        </label>
+        <select id="sortOrder" onchange="filterData()"
+            style="padding: 8px; border-radius: 8px; border: 1px solid #d2d2d7;">
+            <option value="pid">默认排序 (PID)</option>
+            <option value="price_desc" selected>价格从高到低</option>
+            <option value="price_asc">价格从低到高</option>
+        </select>
+    </div>
+
+    <div class="stats" id="stats">正在加载数据...</div>
+
+    <table id="dataTable">
+        <thead>
+            <tr>
+                <th width="100">PID</th>
+                <th>标题</th>
+                <th width="150">价格</th>
+                <th width="150">周期</th>
+                <th width="100">链接</th>
+            </tr>
+        </thead>
+        <tbody id="tableBody">
+        </tbody>
+    </table>
+
+    <script>
+        let allData = [];
+
+        async function loadData() {
+            try {
+                // Add a timestamp to prevent caching
+                const response = await fetch('hudiyun_results.json?t=' + new Date().getTime());
+                const data = await response.json();
+                allData = data.success || [];
+                // Apply default sort (Price Desc)
+                filterData();
+            } catch (error) {
+                console.error('Error loading data:', error);
+                document.getElementById('stats').innerText = '加载数据失败，请确保 hudiyun_results.json 存在。';
+            }
+        }
+
+        function renderTable(data) {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+
+            // Sort logic is now handled in filterData or here based on current state
+            // But renderTable usually just renders what it gets. 
+            // Let's rely on filterData passing sorted data.
+
+            data.forEach(item => {
+                const row = document.createElement('tr');
+
+                // Check if high price
+                let priceClass = 'price';
+                let priceText = item.price;
+                const priceVal = parseFloat(item.price.replace(/[^\d.]/g, ''));
+                if (priceVal >= 9999) {
+                    priceClass = 'high-price';
+                    priceText += ' (高价)';
+                }
+
+                const billingText = item.billing_cycle === 'annually' ? '<span style="color:#2ecc71">年付</span>' : '<span style="color:#95a5a6">默认</span>';
+
+                row.innerHTML = `
+                    <td>${item.pid}</td>
+                    <td>${item.title}</td>
+                    <td class="${priceClass}">${priceText}</td>
+                    <td>${billingText}</td>
+                    <td class="link"><a href="${item.url}" target="_blank">购买</a></td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            document.getElementById('stats').innerText = `共显示 ${data.length} 条结果`;
+        }
+
+        function filterData() {
+            const input = document.getElementById('searchInput');
+            const filter = input.value.toLowerCase();
+            const hideHighPrice = document.getElementById('hideHighPrice').checked;
+            const sortOrder = document.getElementById('sortOrder').value;
+
+            let filtered = allData.filter(item => {
+                const matchesSearch = item.pid.toString().includes(filter) ||
+                    (item.title && item.title.toLowerCase().includes(filter));
+
+                let matchesPrice = true;
+                if (hideHighPrice) {
+                    const priceVal = parseFloat(item.price.replace(/[^\d.]/g, ''));
+                    // Treat invalid price as high price? No, keep it if just empty? 
+                    // Usually safer to hide if explicitly high.
+                    if (priceVal >= 9999 || priceVal <= 0) {
+                        matchesPrice = false;
+                    }
+                }
+
+                return matchesSearch && matchesPrice;
+            });
+
+            // Sorting
+            filtered.sort((a, b) => {
+                if (sortOrder === 'pid') {
+                    return a.pid - b.pid;
+                } else {
+                    const priceA = parseFloat(a.price.replace(/[^\d.]/g, '')) || 0;
+                    const priceB = parseFloat(b.price.replace(/[^\d.]/g, '')) || 0;
+                    if (sortOrder === 'price_desc') {
+                        return priceB - priceA;
+                    } else {
+                        return priceA - priceB;
+                    }
+                }
+            });
+
+            renderTable(filtered);
+        }
+
+        loadData();
+    </script>
+</body>
+
+</html>
