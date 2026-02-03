@@ -34,7 +34,7 @@ jobs:
         # Scan from 1, auto-stop after 50 failures.
         # This runs in continuous mode until stop condition.
         # Limit to 3000s (50 mins) to prevent GitHub Action timeout (6h limit)
-        python3 狐蒂云商品识别.py --time-limit 3000
+        python3 狐蒂云商品识别.py --time-limit 3000 --concurrency 10
 
     - name: Commit and Push results
       uses: stefanzweifel/git-auto-commit-action@v5
