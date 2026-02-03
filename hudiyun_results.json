@@ -1312,14 +1312,14 @@
     {
       "pid": 1850,
       "title": "12+2香港25区 2H系列",
-      "price": "¥19999999.00",
+      "price": "¥9999999.00",
       "billing_cycle": "annually",
       "url": "https://www.szhdy.com/cart?action=configureproduct&pid=1850"
     },
     {
       "pid": 1851,
       "title": "12+2香港25区 4H系列",
-      "price": "¥1999999.00",
+      "price": "¥999999.00",
       "billing_cycle": "annually",
       "url": "https://www.szhdy.com/cart?action=configureproduct&pid=1851"
     },
@@ -1333,56 +1333,56 @@
     {
       "pid": 1853,
       "title": "三周年 香港9区16H16G",
-      "price": "¥1111.00",
+      "price": "¥111.00",
       "billing_cycle": "default",
       "url": "https://www.szhdy.com/cart?action=configureproduct&pid=1853"
     },
     {
       "pid": 1854,
       "title": "三周年 美国2区16H16G",
-      "price": "¥1111.00",
+      "price": "¥111.00",
       "billing_cycle": "default",
       "url": "https://www.szhdy.com/cart?action=configureproduct&pid=1854"
     },
     {
       "pid": 1855,
       "title": "三周年 广州BGP16H16G",
-      "price": "¥1999999.00",
+      "price": "¥999999.00",
       "billing_cycle": "default",
       "url": "https://www.szhdy.com/cart?action=configureproduct&pid=1855"
     },
     {
       "pid": 1856,
       "title": "三周年 宁波7区16H16G",
-      "price": "¥1999999.00",
+      "price": "¥999999.00",
       "billing_cycle": "default",
       "url": "https://www.szhdy.com/cart?action=configureproduct&pid=1856"
     },
     {
       "pid": 1857,
       "title": "三周年 深圳2区16H16G",
-      "price": "¥1333.00",
+      "price": "¥333.00",
       "billing_cycle": "default",
       "url": "https://www.szhdy.com/cart?action=configureproduct&pid=1857"
     },
     {
       "pid": 1858,
       "title": "三周年 香港26区2H2G",
-      "price": "¥1999999.00",
+      "price": "¥999999.00",
       "billing_cycle": "default",
       "url": "https://www.szhdy.com/cart?action=configureproduct&pid=1858"
     },
     {
       "pid": 1859,
       "title": "三周年 香港云服务器16H16G-1",
-      "price": "¥19999999.00",
+      "price": "¥9999999.00",
       "billing_cycle": "default",
       "url": "https://www.szhdy.com/cart?action=configureproduct&pid=1859"
     },
     {
       "pid": 1860,
       "title": "三周年 美国云服务器16H16G-1",
-      "price": "¥19999999.00",
+      "price": "¥9999999.00",
       "billing_cycle": "default",
       "url": "https://www.szhdy.com/cart?action=configureproduct&pid=1860"
     },
@@ -1667,5 +1667,7 @@
       "url": "https://www.szhdy.com/cart?action=configureproduct&pid=1900"
     }
   ],
-  "failed": []
+  "failed": [],
+  "last_pid": 1900,
+  "updated_at": "2026-02-04 03:33:02"
 }
