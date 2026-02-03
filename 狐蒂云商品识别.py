@@ -4,8 +4,26 @@ import argparse
 import os
 import time
 from playwright.sync_api import sync_playwright
+import requests
 
 class HudiyunScanner:
+    def send_dingtalk(self, message):
+        webhook = os.environ.get("DINGTALK_WEBHOOK")
+        if not webhook:
+            return
+        
+        try:
+            data = {
+                "msgtype": "markdown",
+                "markdown": {
+                    "title": "狐蒂云监控通知",
+                    "text": message
+                }
+            }
+            requests.post(webhook, json=data, timeout=5)
+        except Exception as e:
+            print(f"Failed to send DingTalk notification: {e}")
+
     def __init__(self, start_pid=1850, end_pid=1900, get_price=True):
         self.start_pid = start_pid
         self.end_pid = end_pid
@@ -48,6 +66,9 @@ class HudiyunScanner:
         else:
              print(" (Continuous Mode)")
         
+        # Create lookup map for existing data
+        existing_map = {item['pid']: item for item in self.success_ids}
+
         with sync_playwright() as p:
             # Launch browser
             browser = p.chromium.launch(headless=True)
@@ -60,22 +81,15 @@ class HudiyunScanner:
             
             pid = self.start_pid
             consecutive_failures = 0
-            MAX_CONSECUTIVE_FAILURES = 50 # Stop after 50 consecutive invalid pages (tunable)
+            MAX_CONSECUTIVE_FAILURES = 50 
 
             while True:
                 # Stop condition if end_pid is set
                 if self.end_pid and pid > self.end_pid:
                     break
                 
-                # Check if already succeeded (Skip check to ensure we re-verify or just skip logs? 
-                # User might want to re-scan. But usually skipping is good for resume.
-                # However, if we skip, we shouldn't count it as failure.)
-                if any(item['pid'] == pid for item in self.success_ids):
-                    print(f"PID {pid} already in success list, skipping.")
-                    pid += 1
-                    consecutive_failures = 0 # Reset failure count on known success
-                    continue
-
+                # Removed "Skip" logic to allow re-scanning for updates.
+                
                 url = f"https://www.szhdy.com/cart?action=configureproduct&pid={pid}"
                 print(f"Checking PID {pid}...", end='', flush=True)
 
@@ -100,10 +114,10 @@ class HudiyunScanner:
                     
                     if '404' in title or '抱歉找不到页面' in body_text:
                         print(f" ❌ Page Not Found (404)")
-                        # Don't add to failed_ids to keep JSON clean? Or add? 
-                        # JS version added them. We can add.
-                        # But for infinite scan we might act differently.
                         consecutive_failures += 1
+                        
+                        if pid in existing_map:
+                             print(" (Disappeared)")
                     else:
                         # Check Success
                         product_name_el = page.query_selector('.allocation-header-title h1')
@@ -172,22 +186,50 @@ class HudiyunScanner:
                                      price = price_match.group(1).replace(',', '')
 
                             # Log Price logic
+                            current_price_fmt = f"¥{price}" if price else ""
+                            
                             if price:
                                 try:
                                     price_val = float(price)
                                     if price_val >= 9999:
-                                        print(f" ⚠️ High Price Detected (¥{price}) - Keeping")
+                                        print(f" ⚠️ High Price Detected ({current_price_fmt}) - Keeping")
                                 except:
                                     pass
                             
-                            print(f" ✅ Success! {product_name} ¥{price}")
-                            self.success_ids.append({
+                            print(f" ✅ Success! {product_name} {current_price_fmt}")
+                            
+                            # CHANGE DETECTION & NOTIFICATION
+                            notification_msg = ""
+                            if pid not in existing_map:
+                                # New Item Found (only notify if valid price)
+                                notification_msg = f"## ✨ 发现新商品 (PID: {pid})\n- **标题**: {product_name}\n- **价格**: {current_price_fmt}\n- **周期**: {billing_cycle}\n- [点击购买]({url})"
+                                print("   -> New Item Discovered!")
+                            else:
+                                old_item = existing_map[pid]
+                                old_price = old_item.get('price', '')
+                                if current_price_fmt and current_price_fmt != old_price:
+                                    notification_msg = f"## 💰 价格变动 (PID: {pid})\n- **标题**: {product_name}\n- **旧价格**: {old_price}\n- **新价格**: {current_price_fmt}\n- [点击购买]({url})"
+                                    print(f"   -> Price changed: {old_price} -> {current_price_fmt}")
+                                elif old_item.get('billing_cycle', 'default') != billing_cycle:
+                                     pass
+
+                            if notification_msg:
+                                self.send_dingtalk(notification_msg)
+
+                            # Update Data
+                            # Remove old entry if exists to replace with new
+                            self.success_ids = [item for item in self.success_ids if item['pid'] != pid]
+                            
+                            new_item = {
                                 'pid': pid,
                                 'title': product_name,
-                                'price': f"¥{price}" if price else "",
+                                'price': current_price_fmt,
                                 'billing_cycle': billing_cycle,
                                 'url': url
-                            })
+                            }
+                            self.success_ids.append(new_item)
+                            existing_map[pid] = new_item 
+                            
                             # Save immediately on success
                             self.success_ids.sort(key=lambda x: x['pid'])
                             self.save_results()

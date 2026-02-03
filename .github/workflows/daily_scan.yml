@@ -28,9 +28,13 @@ jobs:
         playwright install chromium
 
     - name: Run Scan
+      env:
+        DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
       run: |
-        # Adjust scan range as needed
-        python 狐蒂云商品识别.py --start 1850 --end 1900
+        source venv/bin/activate
+        # Scan from 1, auto-stop after 50 failures.
+        # This runs in continuous mode until stop condition.
+        python3 狐蒂云商品识别.py
 
     - name: Commit and Push results
       uses: stefanzweifel/git-auto-commit-action@v5
