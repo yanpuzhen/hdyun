@@ -24,10 +24,11 @@ class HudiyunScanner:
         except Exception as e:
             print(f"Failed to send DingTalk notification: {e}")
 
-    def __init__(self, start_pid=1850, end_pid=1900, get_price=True):
+    def __init__(self, start_pid=1850, end_pid=1900, get_price=True, time_limit=None):
         self.start_pid = start_pid
         self.end_pid = end_pid
         self.get_price_flag = get_price
+        self.time_limit = time_limit
         self.success_ids = []
         self.failed_ids = []
         self.results_file = "hudiyun_results.json"
@@ -66,6 +67,9 @@ class HudiyunScanner:
         else:
              print(" (Continuous Mode)")
         
+        if self.time_limit:
+            print(f" [Time Limit: {self.time_limit}s]")
+        
         # Create lookup map for existing data
         existing_map = {item['pid']: item for item in self.success_ids}
 
@@ -84,7 +88,11 @@ class HudiyunScanner:
             MAX_CONSECUTIVE_FAILURES = 50 
 
             while True:
-                # Stop condition if end_pid is set
+                # Check Time Limit
+                if self.time_limit and (time.time() - self.start_time > self.time_limit):
+                    print(f"\n⏰ Time limit reached ({self.time_limit}s). Stopping safely.")
+                    break
+
                 if self.end_pid and pid > self.end_pid:
                     break
                 
@@ -252,11 +260,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Hudiyun Product Scanner (Playwright)")
     parser.add_argument("--start", type=int, default=1, help="Start PID (default: 1)")
     parser.add_argument("--end", type=int, default=None, help="End PID (optional, default: continuous)")
+    parser.add_argument("--time-limit", type=int, default=None, help="Stop after N seconds (e.g. 2400 for 40 mins)")
     
     args = parser.parse_args()
     
     scanner = HudiyunScanner(
         start_pid=args.start,
-        end_pid=args.end
+        end_pid=args.end,
+        time_limit=args.time_limit
     )
     scanner.scan()
